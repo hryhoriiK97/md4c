@@ -154,7 +154,12 @@ typedef enum MD_SPANTYPE {
      * the normal text() callback between enter and leave.
      * Note: Recognized only when MD_FLAG_MENTION_AT / MD_FLAG_MENTION_HASH
      * is enabled. */
-    MD_SPAN_MENTION
+    MD_SPAN_MENTION,
+
+    /* Spoiler (hidden content revealed on interaction).
+     * Syntax: ||hidden text||
+     * Note: Recognized only when MD_FLAG_SPOILER is enabled. */
+    MD_SPAN_SPOILER
 } MD_SPANTYPE;
 
 /* Text is the actual textual contents of span. */
@@ -339,6 +344,8 @@ typedef struct MD_SPAN_MENTION_DETAIL {
 
 /* Convenience: enable both built-in mention indicators at once. */
 #define MD_FLAG_MENTIONS                    (MD_FLAG_MENTION_AT | MD_FLAG_MENTION_HASH)
+
+#define MD_FLAG_SPOILER                     0x40000 /* Enable ||hidden text|| spoiler spans. */
 
 #define MD_FLAG_PERMISSIVEAUTOLINKS         (MD_FLAG_PERMISSIVEEMAILAUTOLINKS | MD_FLAG_PERMISSIVEURLAUTOLINKS | MD_FLAG_PERMISSIVEWWWAUTOLINKS)
 #define MD_FLAG_NOHTML                      (MD_FLAG_NOHTMLBLOCKS | MD_FLAG_NOHTMLSPANS)
