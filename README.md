@@ -102,6 +102,14 @@ extensions:
 * With the flag `MD_FLAG_STRIKETHROUGH`, strike-through spans are enabled
   (text enclosed in tilde marks, e.g. `~foo bar~`).
 
+* With the flag `MD_FLAG_SUPERSCRIPT`, superscript spans are enabled
+  (text enclosed in caret marks, e.g. `x^2^`).
+
+* With the flag `MD_FLAG_SUBSCRIPT`, subscript spans are enabled
+  (text enclosed in single tilde marks, e.g. `H~2~O`). When both
+  `MD_FLAG_SUBSCRIPT` and `MD_FLAG_STRIKETHROUGH` are enabled, single tildes
+  denote subscript and double tildes denote strike-through.
+
 * With the flag `MD_FLAG_PERMISSIVEURLAUTOLINKS` permissive URL autolinks
   (not enclosed in `<` and `>`) are supported.
 

@@ -4,6 +4,16 @@
 
 ## Next Version (Work in Progress)
 
+Changes:
+
+ * Add opt-in superscript spans (`MD_FLAG_SUPERSCRIPT`, `MD_SPAN_SUPERSCRIPT`)
+   for text enclosed in single caret marks (`^text^`).
+
+ * Add opt-in subscript spans (`MD_FLAG_SUBSCRIPT`, `MD_SPAN_SUBSCRIPT`) for
+   text enclosed in single tilde marks (`~text~`). When both subscript and
+   strike-through are enabled, single tildes denote subscript and double tildes
+   denote strike-through.
+
 Fixes:
 
  - [#236](https://github.com/mity/md4c/issues/236):

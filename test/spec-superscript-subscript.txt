@@ -1,0 +1,188 @@
+
+# Superscript and Subscript
+
+With the flag `MD_FLAG_SUPERSCRIPT`, MD4C enables extension for recognition
+of superscript spans wrapped in single carets (`^`).
+
+```````````````````````````````` example
+x^2^
+.
+<p>x<sup>2</sup></p>
+.
+--fsuperscript
+````````````````````````````````
+
+Superscript is opt-in. Without the flag, carets are emitted as plain text.
+
+```````````````````````````````` example
+x^2^
+.
+<p>x^2^</p>
+.
+````````````````````````````````
+
+Only single carets are superscript delimiters.
+
+```````````````````````````````` example
+x^^2^^
+.
+<p>x^^2^^</p>
+.
+--fsuperscript
+````````````````````````````````
+
+With the flag `MD_FLAG_SUBSCRIPT`, MD4C enables extension for recognition
+of subscript spans wrapped in single tildes (`~`).
+
+```````````````````````````````` example
+H~2~O
+.
+<p>H<sub>2</sub>O</p>
+.
+--fsubscript
+````````````````````````````````
+
+Subscript is opt-in. Without either tilde extension flag, tildes are emitted
+as plain text.
+
+```````````````````````````````` example
+H~2~O
+.
+<p>H~2~O</p>
+.
+````````````````````````````````
+
+When subscript is disabled, single and double tildes keep the existing
+strikethrough behavior.
+
+```````````````````````````````` example
+~old~ and ~~older~~
+.
+<p><del>old</del> and <del>older</del></p>
+.
+--fstrikethrough
+````````````````````````````````
+
+When subscript and strikethrough are both enabled, single tildes become
+subscript and double tildes remain strikethrough.
+
+```````````````````````````````` example
+H~2~O and ~~old~~
+.
+<p>H<sub>2</sub>O and <del>old</del></p>
+.
+--fsubscript --fstrikethrough
+````````````````````````````````
+
+Subscript can nest inside double-tilde strikethrough without stealing the
+outer strikethrough delimiters.
+
+```````````````````````````````` example
+~~H~2~O~~
+.
+<p><del>H<sub>2</sub>O</del></p>
+.
+--fsubscript --fstrikethrough
+````````````````````````````````
+
+Double-tilde strikethrough can also nest inside subscript.
+
+```````````````````````````````` example
+~a ~~b~~ c~
+.
+<p><sub>a <del>b</del> c</sub></p>
+.
+--fsubscript --fstrikethrough
+````````````````````````````````
+
+Double tildes are not subscript delimiters.
+
+```````````````````````````````` example
+~~old~~
+.
+<p>~~old~~</p>
+.
+--fsubscript
+````````````````````````````````
+
+Mismatched tilde lengths do not resolve to either span.
+
+```````````````````````````````` example
+~text~~
+.
+<p>~text~~</p>
+.
+--fsubscript --fstrikethrough
+````````````````````````````````
+
+Long tilde runs are not split into subscript or strikethrough delimiters.
+
+```````````````````````````````` example
+a~~~text~~~b
+.
+<p>a~~~text~~~b</p>
+.
+--fsubscript --fstrikethrough
+````````````````````````````````
+
+Superscript and subscript delimiters cannot open when followed by whitespace,
+and cannot close when preceded by whitespace.
+
+```````````````````````````````` example
+^ text^ and ~ text~
+.
+<p>^ text^ and ~ text~</p>
+.
+--fsuperscript --fsubscript
+````````````````````````````````
+
+```````````````````````````````` example
+^text ^ and ~text ~
+.
+<p>^text ^ and ~text ~</p>
+.
+--fsuperscript --fsubscript
+````````````````````````````````
+
+Subscript can nest inside superscript.
+
+```````````````````````````````` example
+x^a~b~^
+.
+<p>x<sup>a<sub>b</sub></sup></p>
+.
+--fsuperscript --fsubscript
+````````````````````````````````
+
+Superscript and subscript markers inside code spans are literal code text.
+
+```````````````````````````````` example
+`H~2~O x^2^`
+.
+<p><code>H~2~O x^2^</code></p>
+.
+--fsuperscript --fsubscript
+````````````````````````````````
+
+Superscript and subscript spans can appear inside link text.
+
+```````````````````````````````` example
+[x^2^ and H~2~O](url)
+.
+<p><a href="url">x<sup>2</sup> and H<sub>2</sub>O</a></p>
+.
+--fsuperscript --fsubscript
+````````````````````````````````
+
+Paragraph boundaries stop superscript parsing.
+
+```````````````````````````````` example
+^a
+
+b^
+.
+<p>^a</p>
+<p>b^</p>
+.
+--fsuperscript
+````````````````````````````````
