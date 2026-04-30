@@ -253,12 +253,21 @@ static const CMDLINE_OPTION cmdline_options[] = {
     {  0,  "fpermissive-email-autolinks",   '@', 0 },
     {  0,  "fpermissive-url-autolinks",     'U', 0 },
     {  0,  "fpermissive-www-autolinks",     '.', 0 },
+    {  0,  "fspoiler",                      'P', 0 },
     {  0,  "fstrikethrough",                'S', 0 },
     {  0,  "ftables",                       'T', 0 },
     {  0,  "ftasklists",                    'X', 0 },
     {  0,  "funderline",                    '_', 0 },
     {  0,  "fverbatim-entities",            'E', 0 },
     {  0,  "fwiki-links",                   'K', 0 },
+    /* Mention extension flags.  These are used by the test suite (run-tests.py
+     * passes them to this binary per spec example) so that spec-mentions.txt
+     * can toggle mention parsing independently.  In production the flags are
+     * set directly on MD_PARSER.flags in the application's C/C++ code; this
+     * CLI tool and md4c-html are not involved. */
+    {  0,  "fmention-at",                   ')', 0 },
+    {  0,  "fmention-hash",                 '(', 0 },
+    {  0,  "fmentions",                     '?', 0 },
 
     {  0,  "fno-html-blocks",               'F', 0 },
     {  0,  "fno-html-spans",                'G', 0 },
@@ -308,11 +317,15 @@ usage(void)
         "                       --fpermissive-email-autolinks\n"
         "      --fhard-soft-breaks\n"
         "                       Force all soft breaks to act as hard breaks\n"
+        "      --fspoiler       Enable spoiler spans (||hidden text||)\n"
         "      --fstrikethrough Enable strike-through spans\n"
         "      --ftables        Enable tables\n"
         "      --ftasklists     Enable task lists\n"
         "      --funderline     Enable underline spans\n"
         "      --fwiki-links    Enable wiki links\n"
+        "      --fmention-at   Enable @[display](target) mention spans\n"
+        "      --fmention-hash Enable #[display](target) mention spans\n"
+        "      --fmentions     Same as --fmention-at --fmention-hash\n"
         "\n"
         "Markdown suppression options:\n"
         "      --fno-html-blocks\n"
@@ -382,12 +395,16 @@ cmdline_callback(int opt, char const* value, void* data)
         case '@':   parser_flags |= MD_FLAG_PERMISSIVEEMAILAUTOLINKS; break;
         case 'V':   parser_flags |= MD_FLAG_PERMISSIVEAUTOLINKS; break;
         case 'T':   parser_flags |= MD_FLAG_TABLES; break;
+        case 'P':   parser_flags |= MD_FLAG_SPOILER; break;
         case 'S':   parser_flags |= MD_FLAG_STRIKETHROUGH; break;
         case 'L':   parser_flags |= MD_FLAG_LATEXMATHSPANS; break;
         case 'K':   parser_flags |= MD_FLAG_WIKILINKS; break;
         case 'X':   parser_flags |= MD_FLAG_TASKLISTS; break;
         case '_':   parser_flags |= MD_FLAG_UNDERLINE; break;
         case 'B':   parser_flags |= MD_FLAG_HARD_SOFT_BREAKS; break;
+        case ')':   parser_flags |= MD_FLAG_MENTION_AT; break;   /* --fmention-at   */
+        case '(':   parser_flags |= MD_FLAG_MENTION_HASH; break; /* --fmention-hash  */
+        case '?':   parser_flags |= MD_FLAG_MENTIONS; break;     /* --fmentions      */
 
         default:
             fprintf(stderr, "Illegal option: %s\n", value);

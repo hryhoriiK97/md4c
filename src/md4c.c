@@ -198,7 +198,7 @@ struct MD_CTX_tag {
 #endif
 
     /* For resolving of inline spans. */
-    MD_MARKSTACK opener_stacks[16];
+    MD_MARKSTACK opener_stacks[17];
 #define ASTERISK_OPENERS_oo_mod3_0      (ctx->opener_stacks[0])     /* Opener-only */
 #define ASTERISK_OPENERS_oo_mod3_1      (ctx->opener_stacks[1])
 #define ASTERISK_OPENERS_oo_mod3_2      (ctx->opener_stacks[2])
@@ -215,6 +215,7 @@ struct MD_CTX_tag {
 #define TILDE_OPENERS_2                 (ctx->opener_stacks[13])
 #define BRACKET_OPENERS                 (ctx->opener_stacks[14])
 #define DOLLAR_OPENERS                  (ctx->opener_stacks[15])
+#define PIPE_OPENERS                    (ctx->opener_stacks[16])
 
     /* Stack of dummies which need to call free() for pointers stored in them.
      * These are constructed during inline parsing and freed after all the block
@@ -2598,6 +2599,8 @@ md_opener_stack(MD_CTX* ctx, int mark_index)
 
         case _T('~'):   return (mark->end - mark->beg == 1) ? &TILDE_OPENERS_1 : &TILDE_OPENERS_2;
 
+        case _T('|'):   return &PIPE_OPENERS;
+
         case _T('!'):
         case _T('['):   return &BRACKET_OPENERS;
 
@@ -2751,8 +2754,15 @@ md_build_mark_char_map(MD_CTX* ctx)
     if(ctx->parser.flags & MD_FLAG_PERMISSIVEWWWAUTOLINKS)
         ctx->mark_char_map['.'] = 1;
 
-    if((ctx->parser.flags & MD_FLAG_TABLES) || (ctx->parser.flags & MD_FLAG_WIKILINKS))
+    if((ctx->parser.flags & MD_FLAG_TABLES) || (ctx->parser.flags & MD_FLAG_WIKILINKS) ||
+       (ctx->parser.flags & MD_FLAG_SPOILER))
         ctx->mark_char_map['|'] = 1;
+
+    if(ctx->parser.flags & MD_FLAG_MENTION_AT)
+        ctx->mark_char_map['@'] = 1;   /* idempotent with MD_FLAG_PERMISSIVEEMAILAUTOLINKS */
+
+    if(ctx->parser.flags & MD_FLAG_MENTION_HASH)
+        ctx->mark_char_map['#'] = 1;
 
     if(ctx->parser.flags & MD_FLAG_COLLAPSEWHITESPACE) {
         int i;
@@ -3213,6 +3223,25 @@ md_collect_marks(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines, int table_m
                 continue;
             }
 
+            /* A potential mention opener: @[ or #[ */
+            if((ch == _T('@') && (ctx->parser.flags & MD_FLAG_MENTION_AT)) ||
+               (ch == _T('#') && (ctx->parser.flags & MD_FLAG_MENTION_HASH))) {
+                if(off + 1 < line->end  &&  CH(off+1) == _T('[')) {
+                    /* Opener spans the indicator + '['. One D mark reserves space
+                     * for the target range, filled in by md_resolve_mentions(). */
+                    ADD_MARK(ch, off, off+2, MD_MARK_POTENTIAL_OPENER);
+                    ADD_MARK('D', off+2, off+2, 0);
+                    off += 2;
+                    continue;
+                }
+                /* '#' with no '[' has no other inline meaning; skip it. */
+                if(ch == _T('#')) {
+                    off++;
+                    continue;
+                }
+                /* '@' with no '[' falls through to the email autolink handler. */
+            }
+
             /* A potential permissive e-mail autolink. */
             if(ch == _T('@')) {
                 if(line->beg + 1 <= off  &&  ISALNUM(off-1)  &&
@@ -3277,6 +3306,18 @@ md_collect_marks(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines, int table_m
 
                 off++;
                 continue;
+            }
+
+            /* A potential spoiler delimiter: || ... ||
+             * Checked before the single-| handler so that a double pipe is
+             * consumed as one 2-char mark and does not become two cell boundaries. */
+            if(ch == _T('|') && (ctx->parser.flags & MD_FLAG_SPOILER)) {
+                if(off + 1 < line->end && CH(off+1) == _T('|')) {
+                    ADD_MARK(ch, off, off+2, MD_MARK_POTENTIAL_OPENER | MD_MARK_POTENTIAL_CLOSER);
+                    off += 2;
+                    continue;
+                }
+                /* Single | — fall through to the table/wikilink handler below. */
             }
 
             /* A potential table cell boundary or wiki link label delimiter. */
@@ -3387,9 +3428,10 @@ md_analyze_bracket(MD_CTX* ctx, int mark_index)
     }
 }
 
-/* Forward declaration. */
+/* Forward declarations. */
 static void md_analyze_link_contents(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines,
                                      int mark_beg, int mark_end);
+static int md_resolve_mentions(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines);
 
 static int
 md_resolve_links(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines)
@@ -3838,6 +3880,29 @@ md_analyze_dollar(MD_CTX* ctx, int mark_index)
         md_mark_stack_push(ctx, &DOLLAR_OPENERS, mark_index);
 }
 
+static void
+md_analyze_pipe(MD_CTX* ctx, int mark_index)
+{
+    MD_MARK* mark = &ctx->marks[mark_index];
+
+    /* Only 2-char || marks are spoiler delimiters; single | is a table boundary
+     * handled by md_analyze_table_cell_boundary and never reaches here. */
+    if(mark->end - mark->beg != 2)
+        return;
+
+    if((mark->flags & MD_MARK_POTENTIAL_CLOSER) && PIPE_OPENERS.top >= 0) {
+        int opener_index = PIPE_OPENERS.top;
+
+        md_mark_stack_pop(ctx, &PIPE_OPENERS);
+        md_rollback(ctx, opener_index, mark_index, MD_ROLLBACK_CROSSING);
+        md_resolve_range(ctx, opener_index, mark_index);
+        return;
+    }
+
+    if(mark->flags & MD_MARK_POTENTIAL_OPENER)
+        md_mark_stack_push(ctx, &PIPE_OPENERS, mark_index);
+}
+
 static MD_MARK*
 md_scan_left_for_resolved_mark(MD_CTX* ctx, MD_MARK* mark_from, OFF off, MD_MARK** p_cursor)
 {
@@ -4071,7 +4136,12 @@ md_analyze_marks(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines,
             case '!':   /* Pass through. */
             case ']':   md_analyze_bracket(ctx, i); break;
             case '&':   md_analyze_entity(ctx, i); break;
-            case '|':   md_analyze_table_cell_boundary(ctx, i); break;
+            case '|':
+                if(ctx->marks[i].end - ctx->marks[i].beg == 2)
+                    md_analyze_pipe(ctx, i);             /* || spoiler delimiter */
+                else
+                    md_analyze_table_cell_boundary(ctx, i); /* single | in table mode */
+                break;
             case '_':   /* Pass through. */
             case '*':   md_analyze_emph(ctx, i); break;
             case '~':   md_analyze_tilde(ctx, i); break;
@@ -4111,15 +4181,19 @@ md_analyze_inlines(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines, int table
     ctx->unresolved_link_head = -1;
     ctx->unresolved_link_tail = -1;
 
+    /* (2) Mentions. */
+    if(ctx->parser.flags & (MD_FLAG_MENTION_AT | MD_FLAG_MENTION_HASH))
+        MD_CHECK(md_resolve_mentions(ctx, lines, n_lines));
+
     if(table_mode) {
-        /* (2) Analyze table cell boundaries. */
+        /* (3) Analyze table cell boundaries. */
         MD_ASSERT(n_lines == 1);
         ctx->n_table_cell_boundaries = 0;
         md_analyze_marks(ctx, lines, n_lines, 0, ctx->n_marks, _T("|"), 0);
         return ret;
     }
 
-    /* (3) Emphasis and strong emphasis; permissive autolinks. */
+    /* (4) Emphasis and strong emphasis; permissive autolinks. */
     md_analyze_link_contents(ctx, lines, n_lines, 0, ctx->n_marks);
 
 abort:
@@ -4134,6 +4208,20 @@ md_analyze_link_contents(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines,
 
     md_analyze_marks(ctx, lines, n_lines, mark_beg, mark_end, _T("&"), 0);
     md_analyze_marks(ctx, lines, n_lines, mark_beg, mark_end, _T("*_~$"), 0);
+
+    /* Analyze spoiler delimiters (|| ... ||). We do this with a direct loop
+     * rather than via md_analyze_marks() so that we can filter on mark size
+     * (exactly 2 chars) and avoid accidentally processing single-char '|'
+     * wikilink separators that would be routed to md_analyze_table_cell_boundary. */
+    if(ctx->parser.flags & MD_FLAG_SPOILER) {
+        for(i = mark_beg; i < mark_end; i++) {
+            MD_MARK* mark = &ctx->marks[i];
+            if(mark->flags & MD_MARK_RESOLVED)
+                continue;
+            if(mark->ch == '|' && mark->end - mark->beg == 2)
+                md_analyze_pipe(ctx, i);
+        }
+    }
 
     if((ctx->parser.flags & MD_FLAG_PERMISSIVEAUTOLINKS) != 0) {
         /* These have to be processed last, as they may be greedy and expand
@@ -4195,6 +4283,136 @@ abort:
     return ret;
 }
 
+
+static int
+md_enter_leave_span_mention(MD_CTX* ctx, int enter, CHAR indicator,
+                            const CHAR* target, SZ target_size)
+{
+    MD_ATTRIBUTE_BUILD target_build = { 0 };
+    MD_SPAN_MENTION_DETAIL det;
+    int ret = 0;
+
+    memset(&det, 0, sizeof(MD_SPAN_MENTION_DETAIL));
+    det.indicator = indicator;
+    MD_CHECK(md_build_attribute(ctx, target, target_size, 0, &det.target, &target_build));
+
+    if(enter)
+        MD_ENTER_SPAN(MD_SPAN_MENTION, &det);
+    else
+        MD_LEAVE_SPAN(MD_SPAN_MENTION, &det);
+
+abort:
+    md_free_attribute(ctx, &target_build);
+    return ret;
+}
+
+/* Resolve @[...](target) and #[...](target) mention spans.
+ * Called after md_resolve_links() so that any regular links inside the
+ * mention display text have already been resolved and their ']' marks are
+ * already claimed.  The first remaining unresolved ']' after a mention
+ * opener therefore belongs to the mention itself. */
+static int
+md_resolve_mentions(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines)
+{
+    int i;
+    int ret = 0;
+
+    for(i = 0; i < ctx->n_marks; i++) {
+        MD_MARK* opener = &ctx->marks[i];
+        MD_MARK* d_mark;
+        int closer_index = -1;
+        int j;
+        OFF target_beg, target_end;
+
+        /* Only look at potential, unresolved mention openers. */
+        if(opener->flags & MD_MARK_RESOLVED)
+            continue;
+        if(!(opener->flags & MD_MARK_POTENTIAL_OPENER))
+            continue;
+        if(opener->ch != _T('@')  &&  opener->ch != _T('#'))
+            continue;
+        /* Mention openers span exactly 2 chars (indicator + '[').
+         * Single-char '@' marks are e-mail autolink candidates. */
+        if(opener->end - opener->beg != 2)
+            continue;
+
+        /* D mark immediately after the opener holds the target range. */
+        d_mark = &ctx->marks[i + 1];
+        MD_ASSERT(d_mark->ch == 'D');
+
+        /* Scan forward for the first unresolved ']' after the opener. */
+        for(j = i + 2; j < ctx->n_marks; j++) {
+            MD_MARK* m = &ctx->marks[j];
+            if(m->flags & MD_MARK_RESOLVED) {
+                /* Skip resolved spans entirely. */
+                if(m->flags & MD_MARK_OPENER)
+                    j = m->next;
+                continue;
+            }
+            if(m->ch == _T(']')  &&  m->beg >= opener->end) {
+                closer_index = j;
+                break;
+            }
+        }
+
+        if(closer_index < 0)
+            continue;
+
+        /* Display text must be non-empty. */
+        {
+            MD_MARK* closer = &ctx->marks[closer_index];
+            if(closer->beg <= opener->end)
+                continue;
+
+            /* Scan for an optional '(...)' target immediately after ']'.
+             * Nested parentheses are allowed inside the target string;
+             * the scanner counts depth so that e.g. "user:(id)" works. */
+            target_beg = 0;
+            target_end = 0;
+            if(closer->end < ctx->size  &&  CH(closer->end) == _T('(')) {
+                OFF scan = closer->end + 1;
+                int depth = 1;
+                while(scan < ctx->size  &&  depth > 0  &&  !ISNEWLINE(scan)) {
+                    if(CH(scan) == _T('('))
+                        depth++;
+                    else if(CH(scan) == _T(')')) {
+                        depth--;
+                        if(depth == 0)
+                            break;
+                    }
+                    scan++;
+                }
+                if(depth == 0) {
+                    target_beg = closer->end + 1;
+                    target_end = scan;        /* scan sits on the outer ')' */
+                    closer->end = scan + 1;
+                }
+            }
+
+            /* Store target range in the D mark. */
+            d_mark->beg = target_beg;
+            d_mark->end = target_end;
+
+            /* Resolve the opener/closer pair. */
+            opener->next = closer_index;
+            opener->flags |= MD_MARK_OPENER | MD_MARK_RESOLVED;
+            closer->prev = i;
+            closer->flags |= MD_MARK_CLOSER | MD_MARK_RESOLVED;
+
+            /* Analyze emphasis and other spans within the display text.
+             * Start at i+1 (the D mark) rather than i+2 (first display-text
+             * mark) — consistent with how md_resolve_links does it; the D mark
+             * has ch=='D' which is ignored by emphasis analysis.
+             * md_analyze_link_contents() returns void so no MD_CHECK needed. */
+            md_analyze_link_contents(ctx, lines, n_lines, i + 1, closer_index);
+        }
+    }
+
+    /* No MD_CHECK calls above; abort: is kept for consistency with the
+     * md4c convention so the label is available if callers are added later. */
+abort:
+    return ret;
+}
 
 /* Render the output, accordingly to the analyzed ctx->marks. */
 static int
@@ -4298,6 +4516,17 @@ md_process_inlines(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines)
                         MD_LEAVE_SPAN(MD_SPAN_DEL, NULL);
                     break;
 
+                case '|':
+                    /* Only 2-char || marks are spoiler spans; single-char |
+                     * marks are table cell boundaries with no inline output. */
+                    if(mark->end - mark->beg == 2) {
+                        if(mark->flags & MD_MARK_OPENER)
+                            MD_ENTER_SPAN(MD_SPAN_SPOILER, NULL);
+                        else
+                            MD_LEAVE_SPAN(MD_SPAN_SPOILER, NULL);
+                    }
+                    break;
+
                 case '$':
                     if(mark->flags & MD_MARK_OPENER) {
                         MD_ENTER_SPAN((mark->end - off) % 2 ? MD_SPAN_LATEXMATH : MD_SPAN_LATEXMATH_DISPLAY, NULL);
@@ -4316,6 +4545,16 @@ md_process_inlines(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines)
                     const MD_MARK* closer = &ctx->marks[opener->next];
                     const MD_MARK* dest_mark;
                     const MD_MARK* title_mark;
+
+                    /* Mention closer: the opener is '@' or '#', not '[' or '!'. */
+                    if(opener->ch == _T('@')  ||  opener->ch == _T('#')) {
+                        const MD_MARK* dm = opener + 1;
+                        SZ tsz = (dm->end > dm->beg) ? dm->end - dm->beg : 0;
+                        MD_CHECK(md_enter_leave_span_mention(ctx, (mark->ch != ']'),
+                                 opener->ch,
+                                 tsz > 0 ? STR(dm->beg) : NULL, tsz));
+                        break;
+                    }
 
                     if ((opener->ch == '[' && closer->ch == ']') &&
                         opener->end - opener->beg >= 2 &&
@@ -4369,7 +4608,20 @@ md_process_inlines(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines)
                     /* Pass through, if auto-link. */
                     MD_FALLTHROUGH();
 
-                case '@':       /* Permissive e-mail autolink. */
+                case '@':       /* Permissive e-mail autolink OR @ mention opener. */
+                    /* '<'/'>' autolinks fall through here from the case above;
+                     * they must NOT be treated as mentions.  Guard on mark->ch.
+                     * Mention openers span indicator + '[' (2 chars); e-mail
+                     * autolink openers span only the '@' itself (1 char). */
+                    if(mark->ch == _T('@')  &&  mark->end - mark->beg == 2) {
+                        const MD_MARK* dm = mark + 1;
+                        SZ tsz = (dm->end > dm->beg) ? dm->end - dm->beg : 0;
+                        MD_CHECK(md_enter_leave_span_mention(ctx, TRUE, mark->ch,
+                                 tsz > 0 ? STR(dm->beg) : NULL, tsz));
+                        break;
+                    }
+                    MD_FALLTHROUGH();
+
                 case ':':       /* Permissive URL autolink. */
                 case '.':       /* Permissive WWW autolink. */
                 {
@@ -4402,6 +4654,17 @@ md_process_inlines(MD_CTX* ctx, const MD_LINE* lines, MD_SIZE n_lines)
                     if(closer->flags & MD_MARK_VALIDPERMISSIVEAUTOLINK)
                         MD_CHECK(md_enter_leave_span_a(ctx, (mark->flags & MD_MARK_OPENER),
                                     MD_SPAN_A, dest, dest_size, TRUE, NULL, 0));
+                    break;
+                }
+
+                case '#':       /* Hash mention opener (MD_FLAG_MENTION_HASH). */
+                {
+                    /* '#' is only ever collected as a '#[' mention opener,
+                     * so every resolved '#' mark here is always an opener. */
+                    const MD_MARK* dm = mark + 1;
+                    SZ tsz = (dm->end > dm->beg) ? dm->end - dm->beg : 0;
+                    MD_CHECK(md_enter_leave_span_mention(ctx, TRUE, mark->ch,
+                             tsz > 0 ? STR(dm->beg) : NULL, tsz));
                     break;
                 }
 

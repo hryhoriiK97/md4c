@@ -466,9 +466,15 @@ enter_span_callback(MD_SPANTYPE type, void* detail, void* userdata)
         case MD_SPAN_IMG:               render_open_img_span(r, (MD_SPAN_IMG_DETAIL*) detail); break;
         case MD_SPAN_CODE:              RENDER_VERBATIM(r, "<code>"); break;
         case MD_SPAN_DEL:               RENDER_VERBATIM(r, "<del>"); break;
+        case MD_SPAN_SPOILER:           RENDER_VERBATIM(r, "<x-spoiler>"); break;
         case MD_SPAN_LATEXMATH:         RENDER_VERBATIM(r, "<x-equation>"); break;
         case MD_SPAN_LATEXMATH_DISPLAY: RENDER_VERBATIM(r, "<x-equation type=\"display\">"); break;
         case MD_SPAN_WIKILINK:          render_open_wikilink_span(r, (MD_SPAN_WIKILINK_DETAIL*) detail); break;
+        /* MD_SPAN_MENTION is intentionally a no-op here: md4c-html passes the
+         * display text through via the text() callback so it appears in output,
+         * but visual styling and tap handling are the application's responsibility.
+         * Use MD_SPAN_MENTION_DETAIL (indicator + target) in your own renderer. */
+        case MD_SPAN_MENTION:           break;
     }
 
     return 0;
@@ -492,9 +498,11 @@ leave_span_callback(MD_SPANTYPE type, void* detail, void* userdata)
         case MD_SPAN_IMG:               render_close_img_span(r, (MD_SPAN_IMG_DETAIL*) detail); break;
         case MD_SPAN_CODE:              RENDER_VERBATIM(r, "</code>"); break;
         case MD_SPAN_DEL:               RENDER_VERBATIM(r, "</del>"); break;
+        case MD_SPAN_SPOILER:           RENDER_VERBATIM(r, "</x-spoiler>"); break;
         case MD_SPAN_LATEXMATH:         /*fall through*/
         case MD_SPAN_LATEXMATH_DISPLAY: RENDER_VERBATIM(r, "</x-equation>"); break;
         case MD_SPAN_WIKILINK:          RENDER_VERBATIM(r, "</x-wikilink>"); break;
+        case MD_SPAN_MENTION:           break;  /* see enter_span_callback above */
     }
 
     return 0;
