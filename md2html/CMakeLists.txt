@@ -8,6 +8,8 @@ target_compile_definitions(md2html PRIVATE
     MD_VERSION_RELEASE=${PROJECT_VERSION_PATCH}
 )
 
+md4c_apply_perf_options(md2html)
+
 
 # Install rules
 

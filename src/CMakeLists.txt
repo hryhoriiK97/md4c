@@ -35,6 +35,9 @@ set_target_properties(md4c-html PROPERTIES
 )
 target_link_libraries(md4c-html PUBLIC md4c)
 
+md4c_apply_perf_options(md4c)
+md4c_apply_perf_options(md4c-html)
+
 
 # Install rules
 

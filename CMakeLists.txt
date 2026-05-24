@@ -8,6 +8,11 @@ project(MD4C
 
 option(BUILD_MD2HTML_EXECUTABLE "Whether to compile the md2html executable" ON)
 
+# Optional performance flags (off by default; not for sanitizer/cross builds).
+option(MD4C_OPT_NATIVE "Build Release with -O3 -march=native (GCC/Clang only)" OFF)
+option(MD4C_OPT_LTO "Enable link-time optimization for Release builds" OFF)
+option(MD4C_BUILD_BENCH "Build md-bench performance benchmark tool" OFF)
+
 
 if(WIN32)
     # On Windows, given there is no standard lib install dir etc., we rather
@@ -54,7 +59,28 @@ endif()
 
 include(GNUInstallDirs)
 
+# Apply MD4C_OPT_NATIVE / MD4C_OPT_LTO to a target (md4c, md4c-html, md2html, …).
+function(md4c_apply_perf_options target)
+    if(MD4C_OPT_NATIVE)
+        if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+            target_compile_options(${target} PRIVATE
+                $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-O3>
+                $<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-march=native>
+            )
+        endif()
+    endif()
+    if(MD4C_OPT_LTO)
+        set_target_properties(${target} PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE TRUE
+            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
+        )
+    endif()
+endfunction()
+
 add_subdirectory(src)
-if (BUILD_MD2HTML_EXECUTABLE)
+if(BUILD_MD2HTML_EXECUTABLE)
     add_subdirectory(md2html)
-endif ()
+endif()
+if(MD4C_BUILD_BENCH)
+    add_subdirectory(bench)
+endif()
